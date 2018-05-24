@@ -97,7 +97,7 @@ int bitbang_execute_queue(void)
 {
 	struct jtag_command *cmd = jtag_command_queue;	/* currently processed command */
 	struct jtag_command *cmd_next = jtag_command_queue;
-	int num_bits;
+	int num_bits = 0;
 	int scan_size, scan_size_next;
 	unsigned temp, size;
 	unsigned prepare = 0;

@@ -107,7 +107,7 @@ void *cmd_queue_alloc(size_t size)
 	}
 
 	if (!*p_page) {
-		*p_page = page_buffer;
+		*p_page = (void *)page_buffer;
 		if (sizeof(struct cmd_queue_page) > 12) {
 			LOG_ERROR("PAGE BUFFER TOO SMALL! NEED %d BYTES",sizeof(struct cmd_queue_page));
 			exit(-1);

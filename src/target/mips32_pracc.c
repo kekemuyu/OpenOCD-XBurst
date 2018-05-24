@@ -328,7 +328,7 @@ inline void pracc_queue_init(struct pracc_queue_info *ctx)
 	ctx->retval = ERROR_OK;
 	ctx->code_count = 0;
 	ctx->store_count = 0;
-	ctx->pracc_list = p;
+	ctx->pracc_list = (void *)p;
 	ctx->isa = ctx->ejtag_info->isa ? 1 : 0;
 }
 
