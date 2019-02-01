@@ -691,12 +691,12 @@ static int gdb_get_packet(struct connection *connection, char *buffer, int *len)
 
 static int gdb_output_con(struct connection *connection, const char *line)
 {
-	static char hex_buffer[113 * 2 + 2];
+	static char hex_buffer[193 * 2 + 2];
 	int bin_size;
 
 	bin_size = strlen(line);
 
-	if(bin_size > 113) {
+	if(bin_size > 193) {
 		LOG_ERROR("GDB BUFFER TOO SMALL! NEED %d BYTES",(bin_size * 2 + 2));
 		return ERROR_GDB_BUFFER_TOO_SMALL;
 	}
