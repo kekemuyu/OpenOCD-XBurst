@@ -1417,7 +1417,7 @@ int mips32_pracc_fast_exec(struct mips_ejtag *ejtag_info, uint32_t start_addr, c
 	uint32_t req_ctrl;
 	uint32_t block_size = 4 * 1024 * 1024, count = 0;
 	bool     data_finish = false, arg_finish = false;
-	const uint32_t arg_num = 2;
+	uint32_t arg_num = 2;
 
 	stat(exec_f, &exec_stat);
 	stat(data_f, &data_stat);
@@ -1481,8 +1481,8 @@ int mips32_pracc_fast_exec(struct mips_ejtag *ejtag_info, uint32_t start_addr, c
 			ret = fread(&data_d, 1, 4, data_p);
 			data_finish = ret == EOF;
 		} else {
-			buf[0] = 0;// flash name
-			buf[1] = data_stat.st_size;
+			buf[0] = 0;                  // flash type
+			buf[1] = data_stat.st_size;  // data size(byte)
 			count = arg_num;
 		}
 		if ((count == block_size) || (data_finish && (count > 0)) || !arg_finish) {
@@ -1497,6 +1497,10 @@ int mips32_pracc_fast_exec(struct mips_ejtag *ejtag_info, uint32_t start_addr, c
 			count = 0;
 			arg_finish = true;
         		retval = jtag_execute_queue();/* execute queued scans */
+			if (retval != ERROR_OK) {
+                		LOG_ERROR("fastdata load execute queue failed");
+                		break;
+        		}
 		} else {
 			*(buf + count) = data_d;
 			count++;
@@ -1504,11 +1508,6 @@ int mips32_pracc_fast_exec(struct mips_ejtag *ejtag_info, uint32_t start_addr, c
 		if (data_finish) break;
 	}
 	free(buf);
-
-        if (retval != ERROR_OK) {
-                LOG_ERROR("fastdata load execute queue failed");
-                goto EXIT;
-        }
 
 	retval = mips32_pracc_read_ctrl_addr(ejtag_info);
         if (ejtag_info->pa_addr != MIPS32_PRACC_TEXT)
