@@ -1234,7 +1234,7 @@ COMMAND_HANDLER(mips32_handle_invalidate_cache_command)
 	return ERROR_OK;
 }
 
-COMMAND_HANDLER(mips32_handle_run_code)
+COMMAND_HANDLER(mips32_handle_queue_exec)
 {
         struct target *target = get_current_target(CMD_CTX);
         struct mips32_common *mips32 = target_to_mips32(target);
@@ -1298,6 +1298,23 @@ EXIT:	image_close(&image);
 	return retval;
 }
 
+COMMAND_HANDLER(mips32_handle_fast_exec)
+{
+        struct target *target = get_current_target(CMD_CTX);
+        struct mips32_common *mips32 = target_to_mips32(target);
+        struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+        int retval = ERROR_OK;
+        uint32_t start_addr;
+
+        if (CMD_ARGC < 4)
+                return ERROR_COMMAND_SYNTAX_ERROR;
+
+        COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], start_addr);
+        retval = mips32_pracc_fast_exec(ejtag_info, start_addr, CMD_ARGV[1], CMD_ARGV[2], CMD_ARGV[3]);
+
+        return retval;
+}
+
 static const struct command_registration mips32_exec_command_handlers[] = {
 	{
 		.name = "cp0",
@@ -1321,8 +1338,15 @@ static const struct command_registration mips32_exec_command_handlers[] = {
                 .usage = "all|instnowb|data|l2|allnowb|datanowb|l2nowb",
         },
         {
-                .name = "run_code",
-                .handler = mips32_handle_run_code,
+                .name = "queue_exec",
+                .handler = mips32_handle_queue_exec,
+                .mode = COMMAND_EXEC,
+                .help = "Execute the executable program in the debug mode.",
+                .usage = "[file_name] [bin|elf|ihex|s19]",
+        },
+        {
+                .name = "fast_exec",
+                .handler = mips32_handle_fast_exec,
                 .mode = COMMAND_EXEC,
                 .help = "Execute the executable program in the debug mode.",
                 .usage = "[file_name] [bin|elf|ihex|s19]",

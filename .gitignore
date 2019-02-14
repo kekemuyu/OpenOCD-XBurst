@@ -99,3 +99,7 @@ TAGS
 
 # ctags tag files
 tags
+
+# tmp
+build
+install
