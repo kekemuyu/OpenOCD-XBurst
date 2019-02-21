@@ -24,8 +24,8 @@
 
 #include <sys/mman.h>
 
-#define SHARE_DATA	(*(volatile unsigned int *)(tcsm2_base+0x0ff0/4))
-#define SHARE_DATA2	(*(volatile unsigned int *)(tcsm2_base+0x0ff4/4))
+#define SHARE_DATA	(*(volatile unsigned int *)(tcsm_base+0x1ff0/4))
+#define SHARE_DATA2	(*(volatile unsigned int *)(tcsm_base+0x1ff4/4))
 
 #define CLKGR		(*(cgu_base+0x020/4))
 #define MCUCSR		(*(mcu_base+0x030/4))
@@ -72,8 +72,7 @@ static int dev_mem_fd;
 volatile uint32_t *pio_base;
 static volatile uint32_t *cgu_base;
 static volatile uint32_t *mcu_base;
-static uint32_t *tcsm_base;
-uint32_t *tcsm2_base;
+uint32_t *tcsm_base;
 
 static bb_value_t x1000_read(void);
 static int x1000_write(int tck, int tms, int tdi);
@@ -416,7 +415,7 @@ static int x1000_init(void)
 	cgu_base = mmap(NULL, sysconf(_SC_PAGE_SIZE), PROT_READ | PROT_WRITE,
 				MAP_SHARED, dev_mem_fd, 0x10000000);/* CGU controller */
 
-	if (pio_base == MAP_FAILED) {
+	if (cgu_base == MAP_FAILED) {
 		perror("mmap");
 		close(dev_mem_fd);
 		return ERROR_JTAG_INIT_FAILED;
@@ -431,19 +430,10 @@ static int x1000_init(void)
 		return ERROR_JTAG_INIT_FAILED;
 	}
 
-	tcsm_base = mmap(NULL, sysconf(_SC_PAGE_SIZE), PROT_READ | PROT_WRITE,
+	tcsm_base = mmap(NULL, 2 * sysconf(_SC_PAGE_SIZE), PROT_READ | PROT_WRITE,
 				MAP_SHARED, dev_mem_fd, 0x13422000);/* TCSM Bank0 */
 
 	if (tcsm_base == MAP_FAILED) {
-		perror("mmap");
-		close(dev_mem_fd);
-		return ERROR_JTAG_INIT_FAILED;
-	}
-
-	tcsm2_base = mmap(NULL, sysconf(_SC_PAGE_SIZE), PROT_READ | PROT_WRITE,
-				MAP_SHARED, dev_mem_fd, 0x13423000);/* TCSM Bank1 */
-
-	if (tcsm2_base == MAP_FAILED) {
 		perror("mmap");
 		close(dev_mem_fd);
 		return ERROR_JTAG_INIT_FAILED;

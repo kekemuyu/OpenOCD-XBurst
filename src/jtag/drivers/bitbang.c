@@ -30,10 +30,10 @@
 #include <jtag/interface.h>
 #include <jtag/commands.h>
 
-#define SHARE_DATA	(*(volatile unsigned int *)(tcsm2_base+0x0ff0/4))
-#define SHARE_DATA2	(*(volatile unsigned int *)(tcsm2_base+0x0ff4/4))
+#define SHARE_DATA	(*(volatile unsigned int *)(tcsm_base+0x1ff0/4))
+#define SHARE_DATA2	(*(volatile unsigned int *)(tcsm_base+0x1ff4/4))
 
-extern uint32_t *tcsm2_base;
+extern uint32_t *tcsm_base;
 
 /* YUK! - but this is currently a global.... */
 extern struct jtag_interface *jtag_interface;
