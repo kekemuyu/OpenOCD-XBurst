@@ -155,18 +155,42 @@ enum scan_type jtag_scan_type(const struct scan_command *cmd)
 	return type;
 }
 
+int jtag_scan_size(const struct scan_command *cmd)
+{
+	int bit_count = 0;
+	int i;
+
+	/* count bits in scan command */
+	for (i = 0; i < cmd->num_fields; i++)
+		bit_count += cmd->fields[i].num_bits;
+
+	return bit_count;
+}
+
 int jtag_build_buffer(const struct scan_command *cmd, uint8_t **buffer)
 {
+	int i;
 	int bit_count = 0;
 	static uint8_t data_buffer[84];
 
-	bit_count = cmd->fields[0].num_bits;
+	bit_count = jtag_scan_size(cmd);
+
+	if(bit_count > 672) {
+		LOG_ERROR("JTAG BUFFER TOO SMALL! NEED %d BYTES",DIV_ROUND_UP(bit_count, 8));
+		while(1);
+	}
+
 	*buffer = data_buffer;
 	memset(data_buffer, 0, DIV_ROUND_UP(bit_count, 8));
 
-	if (cmd->fields[0].out_value) {
-		buf_set_buf(cmd->fields[0].out_value, 0, *buffer,
-				0, cmd->fields[0].num_bits);
+	bit_count = 0;
+
+	for (i = 0; i < cmd->num_fields; i++) {
+		if (cmd->fields[i].out_value) {
+			buf_set_buf(cmd->fields[i].out_value, 0, *buffer,
+					bit_count, cmd->fields[i].num_bits);
+		}
+		bit_count += cmd->fields[i].num_bits;
 	}
 
 	return bit_count;
@@ -174,16 +198,28 @@ int jtag_build_buffer(const struct scan_command *cmd, uint8_t **buffer)
 
 int jtag_build_buffer_prefetch(const struct scan_command *cmd, uint8_t **buffer)
 {
+	int i;
 	int bit_count = 0;
 	static uint8_t data_buffer[84];
 
-	bit_count = cmd->fields[0].num_bits;
+	bit_count = jtag_scan_size(cmd);
+
+	if(bit_count > 672) {
+		LOG_ERROR("JTAG PREFETCH BUFFER TOO SMALL! NEED %d BYTES",DIV_ROUND_UP(bit_count, 8));
+		while(1);
+	}
+
 	*buffer = data_buffer;
 	memset(data_buffer, 0, DIV_ROUND_UP(bit_count, 8));
 
-	if (cmd->fields[0].out_value) {
-		buf_set_buf(cmd->fields[0].out_value, 0, *buffer,
-				0, cmd->fields[0].num_bits);
+	bit_count = 0;
+
+	for (i = 0; i < cmd->num_fields; i++) {
+		if (cmd->fields[i].out_value) {
+			buf_set_buf(cmd->fields[i].out_value, 0, *buffer,
+					bit_count, cmd->fields[i].num_bits);
+		}
+		bit_count += cmd->fields[i].num_bits;
 	}
 
 	return bit_count;
@@ -191,16 +227,25 @@ int jtag_build_buffer_prefetch(const struct scan_command *cmd, uint8_t **buffer)
 
 int jtag_read_buffer(uint8_t *buffer, const struct scan_command *cmd)
 {
-	/* if neither in_value nor in_handler
-	 * are specified we don't have to examine this field
-	 */
-	int num_bits = cmd->fields[0].num_bits;
-	uint8_t *captured = buf_set_buf(buffer, 0,
-			malloc(DIV_ROUND_UP(num_bits, 8)), 0, num_bits);
+	int i;
+	int bit_count = 0;
 
-	buf_cpy(captured, cmd->fields[0].in_value, num_bits);
+	for (i = 0; i < cmd->num_fields; i++) {
+		/* if neither in_value nor in_handler
+		 * are specified we don't have to examine this field
+		 */
+		if (cmd->fields[i].in_value) {
+			int num_bits = cmd->fields[i].num_bits;
+			uint8_t *captured = buf_set_buf(buffer, bit_count,
+					malloc(DIV_ROUND_UP(num_bits, 8)), 0, num_bits);
 
-	free(captured);
+			if (cmd->fields[i].in_value)
+				buf_cpy(captured, cmd->fields[i].in_value, num_bits);
+
+			free(captured);
+		}
+		bit_count += cmd->fields[i].num_bits;
+	}
 
 	return ERROR_OK;
 }
