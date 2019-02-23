@@ -97,7 +97,6 @@ int bitbang_execute_queue(void)
 {
 	struct jtag_command *cmd = jtag_command_queue;	/* currently processed command */
 	struct jtag_command *cmd_next = jtag_command_queue;
-	int num_bits = 0;
 	int scan_size, scan_size_next;
 	unsigned temp, size;
 	unsigned prepare = 0;
@@ -119,10 +118,11 @@ int bitbang_execute_queue(void)
 				scan_size = jtag_build_buffer(cmd->cmd.scan, &buffer);
 				type = jtag_scan_type(cmd->cmd.scan);
 			}
-			if(scan_size == 5) {
-//  			0000  0000  0000  0000  0000  0000  0000  0000
-//  			      状态  类型   FTMS  次------数  数------据
-				SHARE_DATA = buffer[0] | 0x08000000;
+			/* irscan，单核时为5位，双核时10位，三核时15位，四核时20位 */
+			if(scan_size == 5 || scan_size == 10 || scan_size == 15 || scan_size == 20) {
+//				0000  0000  0000  0000  0000  0000  0000  0000
+//			      	  状态  位数   数------------------------据
+				SHARE_DATA = buf_get_u32(buffer, 0, scan_size) | ((scan_size - 5) << 20) | 0x08000000;
 				cmd_next = cmd->next;
 				if (cmd_next->type == JTAG_SCAN) {
 					scan_size_next = jtag_build_buffer_prefetch(cmd_next->cmd.scan, &buffer_next);
@@ -130,10 +130,14 @@ int bitbang_execute_queue(void)
 					prepare = 1;
 				}
 				while(SHARE_DATA & 0x08000000);
-			} else if (scan_size == 7) {
-//  			0000  0000  0000  0000  0000  0000  0000  0000
-//  			      状态  类型   FTMS  次------数  数------据
-				SHARE_DATA = buffer[0] | 0x01100000;
+			/* 启动OpenOCD时的特殊scan，单核时为7位，双核时12位，三核时17位，四核时22位 */
+			} else if (scan_size == 7 || scan_size == 12 || scan_size == 17 || scan_size == 22) {
+//SHARE_DATA2	0000  0000  0000  0000  0000  0000  0000  0000
+//  			数------------------------------------------据
+//SHARE_DATA	0000  0000  0000  0000  0000  0000  0000  0000
+//  			      状态  类型                     次------数 
+				SHARE_DATA2 = buf_get_u32(buffer, 0, scan_size);
+				SHARE_DATA = scan_size | 0x01100000;
 				cmd_next = cmd->next;
 				if (cmd_next) {
 					if (cmd_next->type == JTAG_SCAN) {
@@ -142,11 +146,30 @@ int bitbang_execute_queue(void)
 						prepare = 1;
 					}
 				}
-				num_bits = cmd->cmd.scan->fields[0].num_bits;
+				while(SHARE_DATA & 0x01000000);
+				temp = SHARE_DATA2;
+				jtag_read_buffer(&temp, cmd->cmd.scan);
+			} else if (scan_size == 33 || scan_size == 34 || scan_size == 35) {
+				SHARE_DATA2 = buf_get_u32(buffer, 0 * 32, 32);
+				SHARE_DATA = (1 << 28) | (type << 20) | (1 << 16) | 0x02000000
+							 | (scan_size << 8) | buf_get_u32(buffer, 1 * 32, scan_size - 32);
+				cmd_next = cmd->next;
+				if (cmd_next) {
+					if (cmd_next->type == JTAG_SCAN) {
+						scan_size_next = jtag_build_buffer_prefetch(cmd_next->cmd.scan, &buffer_next);
+						type_next = jtag_scan_type(cmd_next->cmd.scan);
+						prepare = 1;
+					}
+				}
 				do mcu_status = SHARE_DATA;
-				while(mcu_status & 0x01000000);
-				buffer[0] = (uint8_t)(mcu_status & 0x000000ff);
-				buf_cpy(buffer, cmd->cmd.scan->fields[0].in_value, num_bits);
+				while(mcu_status & 0x02000000);
+				if (type != SCAN_OUT) {
+					temp = SHARE_DATA2;
+					mcu_status = mcu_status & 0x000000ff;
+					memcpy(&buffer[0], &temp, 4);
+					memcpy(&buffer[4], &mcu_status, 1);
+					jtag_read_buffer(buffer, cmd->cmd.scan);
+				}
 			} else {
 				turn_num = (scan_size-1)/32;
 				size = scan_size;
@@ -154,9 +177,9 @@ int bitbang_execute_queue(void)
 					if(__builtin_expect(scan_size == 32, 1)) {
 						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt * 32, 32);
 						if (__builtin_expect(size == 32, 1))
-							SHARE_DATA = (1 << 28) | (type << 20) | (1 << 16) | 0x02000000;
+							SHARE_DATA = (1 << 28) | (type << 20) | (1 << 16) | (32 << 8) | 0x02000000;
 						if (__builtin_expect(size == 672, 0))
-							SHARE_DATA = (type << 20) | (2 << 16) | 0x02000000;
+							SHARE_DATA = (type << 20) | (2 << 16) | (32 << 8) | 0x02000000;
 						cmd_next = cmd->next;
 						if (cmd_next) {
 							if (cmd_next->type == JTAG_SCAN) {
@@ -165,8 +188,6 @@ int bitbang_execute_queue(void)
 								prepare = 1;
 							}
 						}
-						if (type != SCAN_OUT)
-							num_bits = cmd->cmd.scan->fields[0].num_bits;
 						while(SHARE_DATA & 0x02000000);
 						temp = SHARE_DATA2;
 						if (type != SCAN_OUT)
@@ -174,9 +195,9 @@ int bitbang_execute_queue(void)
 					} else {
 						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt * 32, 32);
 						if (scan_size == 672)
-							SHARE_DATA = (2 << 28) | (type << 20) | 0x02000000;
+							SHARE_DATA = (2 << 28) | (type << 20) | (32 << 8) | 0x02000000;
 						else
-							SHARE_DATA = (type << 20) | 0x02000000;
+							SHARE_DATA = (type << 20) | (32 << 8) | 0x02000000;
 						while(SHARE_DATA & 0x02000000);
 						temp = SHARE_DATA2;
 						if (type != SCAN_OUT)
@@ -185,7 +206,7 @@ int bitbang_execute_queue(void)
 					}
 				}
 				if (type != SCAN_OUT)
-					buf_cpy(buffer, cmd->cmd.scan->fields[0].in_value, num_bits);
+					jtag_read_buffer(buffer, cmd->cmd.scan);
 			}
 		}
 		if (__builtin_expect(cmd->type == JTAG_RESET, 0)) {
