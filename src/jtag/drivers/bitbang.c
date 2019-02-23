@@ -152,7 +152,7 @@ int bitbang_execute_queue(void)
 				size = scan_size;
 				for (turn_cnt = 0; turn_cnt <= turn_num; turn_cnt++) {
 					if(__builtin_expect(scan_size == 32, 1)) {
-						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt, size);
+						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt * 32, 32);
 						if (__builtin_expect(size == 32, 1))
 							SHARE_DATA = (1 << 28) | (type << 20) | (1 << 16) | 0x02000000;
 						if (__builtin_expect(size == 672, 0))
@@ -172,7 +172,7 @@ int bitbang_execute_queue(void)
 						if (type != SCAN_OUT)
 							memcpy(&buffer[turn_cnt*4], &temp, 4);
 					} else {
-						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt, size);
+						SHARE_DATA2 = buf_get_u32(buffer, turn_cnt * 32, 32);
 						if (scan_size == 672)
 							SHARE_DATA = (2 << 28) | (type << 20) | 0x02000000;
 						else
