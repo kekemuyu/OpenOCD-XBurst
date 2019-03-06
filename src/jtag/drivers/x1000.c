@@ -138,8 +138,8 @@ void init_mcu(void)
 {
 	CLKGR = 0;
 
-	load_mcu_fireware();
 	reset_mcu();
+	load_mcu_fireware();
 	boot_up_mcu();
 
 	printf("MCU init ok!\n");
