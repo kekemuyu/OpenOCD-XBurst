@@ -152,11 +152,13 @@ static int mips32_pracc_try_read_ctrl_addr(struct mips_ejtag *ejtag_info)
 }
 
 /* Finish processor access */
-static void mips32_pracc_finish(struct mips_ejtag *ejtag_info)
+static int mips32_pracc_finish(struct mips_ejtag *ejtag_info)
 {
-	jtag_execute_queue();
-	SHARE_DATA = 0x40000000;
-	while(SHARE_DATA & 0x40000000);
+	uint32_t ctrl = ejtag_info->ejtag_ctrl & ~EJTAG_CTRL_PRACC;
+	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL);
+	mips_ejtag_drscan_32_out(ejtag_info, ctrl);
+
+	return jtag_execute_queue();
 }
 
 int mips32_pracc_clean_text_jump(struct mips_ejtag *ejtag_info)
