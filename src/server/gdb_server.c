@@ -1378,8 +1378,8 @@ static int gdb_read_memory_packet(struct connection *connection,
 	uint64_t addr = 0;
 	uint32_t len = 0;
 
-	static uint8_t buffer[128];
-	static char hex_buffer[128 * 2 + 1];
+	static uint8_t buffer[8191];
+	static char hex_buffer[8191 * 2 + 1];
 
 	int retval = ERROR_OK;
 
@@ -1401,7 +1401,7 @@ static int gdb_read_memory_packet(struct connection *connection,
 		return ERROR_OK;
 	}
 
-	if(len > 128) {
+	if(len > 8191) {
 		LOG_ERROR("MEMORY PACKET AND HEX BUFFER TOO SMALL! NEED %d BYTES AND NEED %d BYTES", len, (len * 2 + 1));
 		exit(-1);
 	}

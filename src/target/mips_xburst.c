@@ -985,7 +985,7 @@ static int mips_xburst_read_memory(struct target *target, target_addr_t address,
 {
 	struct mips32_common *mips32 = target_to_mips32(target);
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
-	static uint8_t t_buffer[128 * 1];
+	static uint8_t t_buffer[8188 * 1];
 
 	LOG_DEBUG("address: " TARGET_ADDR_FMT ", size: 0x%8.8" PRIx32 ", count: 0x%8.8" PRIx32 "",
 			address, size, count);
@@ -1007,7 +1007,7 @@ static int mips_xburst_read_memory(struct target *target, target_addr_t address,
 
 	if (size > 1) {
 		t = t_buffer;
-		if(count * size > 128) {
+		if(count * size > 8188) {
 			LOG_ERROR("XBURST READ MEMORY BUFFER TOO SMALL! NEED %d BYTES",(count * size * sizeof(uint8_t)));
 			return ERROR_FAIL;
 		}
