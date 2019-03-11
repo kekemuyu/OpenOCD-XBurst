@@ -145,12 +145,15 @@ void jtag_command_queue_reset(void)
 
 enum scan_type jtag_scan_type(const struct scan_command *cmd)
 {
+	int i;
 	int type = 0;
 
-	if (cmd->fields[0].in_value)
-		type |= SCAN_IN;
-	if (cmd->fields[0].out_value)
-		type |= SCAN_OUT;
+	for (i = 0; i < cmd->num_fields; i++) {
+		if (cmd->fields[i].in_value)
+			type |= SCAN_IN;
+		if (cmd->fields[i].out_value)
+			type |= SCAN_OUT;
+	}
 
 	return type;
 }
