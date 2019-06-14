@@ -83,6 +83,9 @@
 #define MIPS32_CONFIG1_DA_SHIFT 7
 #define MIPS32_CONFIG1_DA_MASK (0x7 << MIPS32_CONFIG1_DA_SHIFT)
 
+#define MIPS32_CONFIG1_FP_SHIFT 0
+#define MIPS32_CONFIG1_FP_MASK (0x1 << MIPS32_CONFIG1_FP_SHIFT)
+
 /** CP0 CONFIG2 regites fields */
 #define MIPS32_CONFIG2_SS_SHIFT 8
 #define MIPS32_CONFIG2_SS_MASK (0xf << MIPS32_CONFIG1_SS_SHIFT)
@@ -92,6 +95,19 @@
 
 #define MIPS32_CONFIG2_SA_SHIFT 0
 #define MIPS32_CONFIG2_SA_MASK (0xf << MIPS32_CONFIG1_SA_SHIFT)
+
+/** CP0 STATUS regites fields */
+#define MIPS32_STATUS_CU3_SHIFT		31
+#define MIPS32_STATUS_CU3_MASK		(1 << MIPS32_STATUS_CU3_SHIFT)
+
+#define MIPS32_STATUS_CU2_SHIFT		30
+#define MIPS32_STATUS_CU2_MASK		(1 << MIPS32_STATUS_CU2_SHIFT)
+
+#define MIPS32_STATUS_CU1_SHIFT		29
+#define MIPS32_STATUS_CU1_MASK		(1 << MIPS32_STATUS_CU1_SHIFT)
+
+#define MIPS32_STATUS_CU0_SHIFT		28
+#define MIPS32_STATUS_CU0_MASK		(1 << MIPS32_STATUS_CU0_SHIFT)
 
 #define MIPS32_ARCH_REL1 0x0
 #define MIPS32_ARCH_REL2 0x1
@@ -104,6 +120,8 @@
 /* offsets into mips32 core register cache */
 enum {
 	MIPS32_PC = 37,
+	MIPS32_F0 = 38,
+	MIPS32_FCSR = 70,
 	MIPS32_FIR = 71,
 	MIPS32NUMCOREREGS
 };
@@ -111,6 +129,11 @@ enum {
 enum mips32_isa_mode {
 	MIPS32_ISA_MIPS32 = 0,
 	MIPS32_ISA_MIPS16E = 1,
+};
+
+enum mips32_fp_imp {
+         FP_NOT_IMP = 0,
+         FP_IMP = 1,
 };
 
 enum mips32_core_type {
@@ -133,6 +156,7 @@ struct mips32_common {
 	struct mips_ejtag ejtag_info;
 	uint32_t core_regs[MIPS32NUMCOREREGS];
 	enum mips32_isa_mode isa_mode;
+	enum mips32_fp_imp fp_imp;
 
 	/* working area for fastdata access */
 	struct working_area *fast_data_area;
@@ -177,6 +201,7 @@ struct mips32_algorithm {
 #define MIPS32_OP_AND	0x24u
 #define MIPS32_OP_CACHE	0x2Fu
 #define MIPS32_OP_COP0	0x10u
+#define MIPS32_OP_COP1	0x11u
 #define MIPS32_OP_J	0x02u
 #define MIPS32_OP_JR	0x08u
 #define MIPS32_OP_LUI	0x0Fu
@@ -212,6 +237,10 @@ struct mips32_algorithm {
 
 #define MIPS32_COP0_MF	0x00u
 #define MIPS32_COP0_MT	0x04u
+#define MIPS32_COP1_MF	0x00u
+#define MIPS32_COP1_MT	0x04u
+#define MIPS32_COP1_CF	0x02u
+#define MIPS32_COP1_CT	0x06u
 
 #define MIPS32_R_INST(opcode, rs, rt, rd, shamt, funct) \
 	(((opcode) << 26) | ((rs) << 21) | ((rt) << 16) | ((rd) << 11) | ((shamt) << 6) | (funct))
@@ -242,6 +271,10 @@ struct mips32_algorithm {
 
 #define MIPS32_MFC0(gpr, cpr, sel)		MIPS32_R_INST(MIPS32_OP_COP0, MIPS32_COP0_MF, gpr, cpr, 0, sel)
 #define MIPS32_MTC0(gpr, cpr, sel)		MIPS32_R_INST(MIPS32_OP_COP0, MIPS32_COP0_MT, gpr, cpr, 0, sel)
+#define MIPS32_MFC1(rt, fs)                 MIPS32_R_INST(MIPS32_OP_COP1, MIPS32_COP1_MF, rt, fs, 0, 0)
+#define MIPS32_MTC1(rt, fs)                 MIPS32_R_INST(MIPS32_OP_COP1, MIPS32_COP1_MT, rt, fs, 0, 0)
+#define MIPS32_CFC1(rt, fs)                 MIPS32_R_INST(MIPS32_OP_COP1, MIPS32_COP1_CF, rt, fs, 0, 0)
+#define MIPS32_CTC1(rt, fs)                 MIPS32_R_INST(MIPS32_OP_COP1, MIPS32_COP1_CT, rt, fs, 0, 0)
 #define MIPS32_MFLO(reg)			MIPS32_R_INST(0, 0, 0, reg, 0, MIPS32_OP_MFLO)
 #define MIPS32_MFHI(reg)			MIPS32_R_INST(0, 0, 0, reg, 0, MIPS32_OP_MFHI)
 #define MIPS32_MTLO(reg)			MIPS32_R_INST(0, reg, 0, 0, 0, MIPS32_OP_MTLO)
