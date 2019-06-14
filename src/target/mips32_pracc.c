@@ -804,12 +804,22 @@ int mips32_pracc_write_mem(struct mips_ejtag *ejtag_info, uint32_t addr, int siz
 			break;
 	}
 
-	/**
-	 * Check cachablitiy bits coherency algorithm
+	/*
+	 * Check cacheablity bits coherency algorithm
 	 * is the region cacheable or uncached.
 	 * If cacheable we have to synchronize the cache
+	 *
+	 * CCA Encoding Description:
+	 * 0   000	Cacheable, write-throngh, write-allocate
+	 * 1   001	Uncacheable, write accelerated
+	 * 2   010	Uncacheable
+	 * 3   011	Cacheable, write-back, write-allocate
+	 * 4   100	Cacheable, write-throngh, write-allocate, Streaming
+	 * 5   101	Cacheable, write-back, write-allocate, Streaming
+	 * 6   110	Reserved
+	 * 7   111	Reserved
 	 */
-	if (cached == 3 || cached == 0) {		/* Write back cache or write through cache */
+	if (cached == 0 || cached == 3 || cached == 4 || cached == 5) {
 		uint32_t start_addr = addr;
 		uint32_t end_addr = addr + count * size;
 		uint32_t rel = (conf & MIPS32_CONFIG0_AR_MASK) >> MIPS32_CONFIG0_AR_SHIFT;
