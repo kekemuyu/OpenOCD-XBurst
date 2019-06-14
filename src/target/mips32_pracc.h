@@ -83,6 +83,9 @@ int mips32_pracc_write_fpu_regs(struct mips_ejtag *ejtag_info, uint32_t *regs);
 
 int mips32_pracc_exec(struct mips_ejtag *ejtag_info, struct pracc_queue_info *ctx, uint32_t *param_out);
 
+int mips32_pracc_fast_exec(struct mips_ejtag *ejtag_info, uint32_t start_addr,
+				const char *exec_f, const char *data_f, const char *arg_l);
+
 /**
  * \b mips32_cp0_read
  *
