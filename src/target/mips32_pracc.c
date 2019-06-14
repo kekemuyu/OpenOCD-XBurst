@@ -112,6 +112,20 @@ static int mips32_pracc_read_ctrl_addr(struct mips_ejtag *ejtag_info)
 	return  mips_ejtag_drscan_32(ejtag_info, &ejtag_info->pa_addr);
 }
 
+static int mips32_pracc_try_read_ctrl_addr(struct mips_ejtag *ejtag_info)
+{
+	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL);
+	ejtag_info->pa_ctrl = ejtag_info->ejtag_ctrl;
+	int retval = mips_ejtag_drscan_32(ejtag_info, &ejtag_info->pa_ctrl);
+	if (retval != ERROR_OK)
+		return retval;
+
+	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_ADDRESS);
+
+	ejtag_info->pa_addr = 0;
+	return mips_ejtag_drscan_32(ejtag_info, &ejtag_info->pa_addr);
+}
+
 /* Finish processor access */
 static void mips32_pracc_finish(struct mips_ejtag *ejtag_info)
 {
@@ -160,6 +174,7 @@ int mips32_pracc_exec(struct mips_ejtag *ejtag_info, struct pracc_queue_info *ct
 {
 	int code_count = 0;
 	int store_pending = 0;		/* increases with every store instruction at dmseg, decreases with every store pa */
+	uint32_t wait_dret_count = 0;
 	uint32_t max_store_addr = 0;	/* for store pa address testing */
 	bool restart = 0;		/* restarting control */
 	int restart_count = 0;
@@ -286,12 +301,25 @@ int mips32_pracc_exec(struct mips_ejtag *ejtag_info, struct pracc_queue_info *ct
 		/* finish processor access, let the processor eat! */
 		mips32_pracc_finish(ejtag_info);
 
-		if (instr == MIPS32_DRET)	/* after leaving debug mode nothing to do */
-			return jtag_execute_queue();
-
-		if (store_pending == 0 && pass) {	/* store access done, but after passing pracc text */
-			LOG_DEBUG("warning: store access pass pracc text");
-			return ERROR_OK;
+		/* TODO:the check_last == 1, only in mips_ejtag_exit_debug, is it necessary? */
+		if (instr == MIPS32_DRET) {/* after leaving debug mode and make sure the DRET finish */
+			while(1) {
+				mips32_pracc_try_read_ctrl_addr(ejtag_info);	/* update current pa info: control and address */
+				if (((ejtag_info->pa_ctrl & EJTAG_CTRL_BRKST) == 0) ||
+						((ejtag_info->pa_ctrl & EJTAG_CTRL_PRACC) && (ejtag_info->pa_addr == MIPS32_PRACC_TEXT))) {
+					jtag_execute_queue();
+					return ERROR_OK;
+				} else if ((ejtag_info->pa_addr != MIPS32_PRACC_TEXT) && (ejtag_info->pa_ctrl & EJTAG_CTRL_PRACC)) {
+					mips_ejtag_set_instr(ejtag_info, EJTAG_INST_DATA);
+					mips_ejtag_drscan_32_out(ejtag_info, MIPS32_NOP);
+					mips32_pracc_finish(ejtag_info);
+				}
+				wait_dret_count++;
+				if (wait_dret_count > 64) {
+					LOG_DEBUG("mips32_pracc_finish failed");
+					return ERROR_FAIL;
+				}
+			}
 		}
 	}
 }
