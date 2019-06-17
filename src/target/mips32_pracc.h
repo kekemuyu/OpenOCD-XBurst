@@ -46,6 +46,8 @@
 
 #define PRACC_BLOCK	128	/* 1 Kbyte */
 
+#define PRACC_MAX_EXEC_CODE_COUNT		0x0FFFFFFF
+
 typedef struct {
 	uint32_t instr;
 	uint32_t addr;
