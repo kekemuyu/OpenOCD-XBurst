@@ -550,6 +550,8 @@ int target_poll(struct target *target)
 
 int target_halt(struct target *target)
 {
+    LOG_DEBUG("target_halt");
+    LOG_DEBUG("1111111111target_coreid %d", target->coreid);
 	int retval;
 	/* We can't poll until after examine */
 	if (!target_was_examined(target)) {
@@ -1092,6 +1094,7 @@ int target_write_phys_memory(struct target *target,
 int target_add_breakpoint(struct target *target,
 		struct breakpoint *breakpoint)
 {
+    LOG_DEBUG("target_add_breakpoint target_id : %d", target->coreid);
 	if ((target->state != TARGET_HALTED) && (breakpoint->type != BKPT_HARD)) {
 		LOG_WARNING("target %s is not halted", target_name(target));
 		return ERROR_TARGET_NOT_HALTED;
@@ -1513,8 +1516,8 @@ int target_call_event_callbacks(struct target *target, enum target_event event)
 		target_call_event_callbacks(target, TARGET_EVENT_GDB_HALT);
 	}
 
-	LOG_DEBUG("target event %i (%s)", event,
-			Jim_Nvp_value2name_simple(nvp_target_event, event)->name);
+	LOG_DEBUG("target event %i (%s) target_id %d", event,
+			Jim_Nvp_value2name_simple(nvp_target_event, event)->name, target->coreid);
 
 	target_handle_event(target, event);
 
@@ -1974,6 +1977,7 @@ static int target_gdb_fileio_end_default(struct target *target,
 static int target_profiling_default(struct target *target, uint32_t *samples,
 		uint32_t max_num_samples, uint32_t *num_samples, uint32_t seconds)
 {
+    LOG_DEBUG("target_profiling_default");
 	struct timeval timeout, now;
 
 	gettimeofday(&timeout, NULL);
@@ -2376,6 +2380,7 @@ int target_write_u8(struct target *target, uint32_t address, uint8_t value)
 
 static int find_target(struct command_context *cmd_ctx, const char *name)
 {
+    LOG_DEBUG("find_target");
 	struct target *target = get_target(name);
 	if (target == NULL) {
 		LOG_ERROR("Target: %s is unknown, try one of:\n", name);
@@ -2389,6 +2394,12 @@ static int find_target(struct command_context *cmd_ctx, const char *name)
 	}
 
 	cmd_ctx->current_target = target->target_number;
+    LOG_DEBUG("find_target_coreid :%d", target->coreid);
+	struct target *target_line = all_targets;
+	while (target_line) {
+        target_line->curr_target = target;   
+		target_line = target_line->next;
+    }
 	return ERROR_OK;
 }
 
@@ -2397,7 +2408,11 @@ COMMAND_HANDLER(handle_targets_command)
 {
 	int retval = ERROR_OK;
 	if (CMD_ARGC == 1) {
+        LOG_DEBUG("handle_targets_command");
+        struct target *current_target = get_current_target(CMD_CTX);
 		retval = find_target(CMD_CTX, CMD_ARGV[0]);
+        struct target *order_target = get_current_target(CMD_CTX);
+        current_target->type->handle_last_fetch(current_target, order_target);
 		if (retval == ERROR_OK) {
 			/* we're done! */
 			return retval;
@@ -2556,9 +2571,17 @@ static int handle_target(void *priv)
 	/* Poll targets for state changes unless that's globally disabled.
 	 * Skip targets that are currently disabled.
 	 */
+    
 	for (struct target *target = all_targets;
 			is_jtag_poll_safe() && target;
 			target = target->next) {
+
+	    //struct command_context *cmd_ctx = current_command_context(interp);
+	    //assert(cmd_ctx != NULL);
+        //struct target *current_target = get_current_target(cmd_ctx);
+        struct target *current_target = target->curr_target;
+
+        LOG_DEBUG("target_coreid: %d current_coreid: %d", target->coreid, current_target->coreid);
 
 		if (!target_was_examined(target))
 			continue;
@@ -2576,7 +2599,11 @@ static int handle_target(void *priv)
 		/* only poll target if we've got power and srst isn't asserted */
 		if (!powerDropout && !srstAsserted) {
 			/* polling may fail silently until the target has been examined */
+            if (target != current_target){
+                current_target->type->handle_last_fetch(current_target, target);
+            }
 			retval = target_poll(target);
+
 			if (retval != ERROR_OK) {
 				/* 100ms polling interval. Increase interval between polling up to 5000ms */
 				if (target->backoff.times * polling_interval < 5000) {
@@ -2605,6 +2632,10 @@ static int handle_target(void *priv)
 
 			/* Since we succeeded, we reset backoff count */
 			target->backoff.times = 0;
+
+            if (target != current_target){
+                current_target->type->handle_last_fetch(target, current_target);
+            }
 		}
 	}
 
@@ -2762,6 +2793,7 @@ COMMAND_HANDLER(handle_poll_command)
 
 COMMAND_HANDLER(handle_wait_halt_command)
 {
+    LOG_DEBUG("handle_wait_halt_command");
 	if (CMD_ARGC > 1)
 		return ERROR_COMMAND_SYNTAX_ERROR;
 
@@ -2784,10 +2816,15 @@ COMMAND_HANDLER(handle_wait_halt_command)
  */
 int target_wait_state(struct target *target, enum target_state state, int ms)
 {
+    LOG_DEBUG("target_wait_state");
 	int retval;
 	int64_t then = 0, cur;
 	bool once = true;
 
+    LOG_DEBUG("**********target_coreid %d", target->coreid);
+    if (target->coreid != 0){
+	    return ERROR_OK;
+    }
 	for (;;) {
 		retval = target_poll(target);
 		if (retval != ERROR_OK)
@@ -2804,12 +2841,13 @@ int target_wait_state(struct target *target, enum target_state state, int ms)
 
 		if (cur-then > 500)
 			keep_alive();
-
-		if ((cur-then) > ms) {
-			LOG_ERROR("timed out while waiting for target %s",
-				Jim_Nvp_value2name_simple(nvp_target_state, state)->name);
-			return ERROR_FAIL;
-		}
+        LOG_DEBUG("cur-then %ld", cur-then);
+	////	if ((cur-then) > ms) {
+	//	if ((cur-then) > 100000) {
+	//		LOG_ERROR("timed out while waiting for target %s",
+	//			Jim_Nvp_value2name_simple(nvp_target_state, state)->name);
+	//		return ERROR_FAIL;
+	//	}
 	}
 
 	return ERROR_OK;
@@ -2818,7 +2856,6 @@ int target_wait_state(struct target *target, enum target_state state, int ms)
 COMMAND_HANDLER(handle_halt_command)
 {
 	LOG_DEBUG("-");
-
 	struct target *target = get_current_target(CMD_CTX);
 	int retval = target_halt(target);
 	if (ERROR_OK != retval)
@@ -2882,7 +2919,6 @@ COMMAND_HANDLER(handle_resume_command)
 		COMMAND_PARSE_NUMBER(u32, CMD_ARGV[0], addr);
 		current = 0;
 	}
-
 	return target_resume(target, current, addr, 1, 0);
 }
 
@@ -3462,6 +3498,7 @@ static int handle_bp_command_list(struct command_context *cmd_ctx)
 {
 	struct target *target = get_current_target(cmd_ctx);
 	struct breakpoint *breakpoint = target->breakpoints;
+    LOG_DEBUG("command_list target_core_id: %d", target->coreid);
 	while (breakpoint) {
 		if (breakpoint->type == BKPT_SOFT) {
 			char *buf = buf_to_str(breakpoint->orig_instr,
@@ -5418,6 +5455,8 @@ static int target_create(Jim_GetOptInfo *goi)
 	target->rtos = NULL;
 	target->rtos_auto_detect = false;
 
+    target->curr_target = target;
+
 	/* Do the rest as "configure" options */
 	goi->isconfigure = 1;
 	e = target_configure(goi, target);
@@ -5426,6 +5465,12 @@ static int target_create(Jim_GetOptInfo *goi)
 		Jim_SetResultString(goi->interp, "-chain-position required when creating target", -1);
 		e = JIM_ERR;
 	}
+
+	struct target *target_line = all_targets;
+	while (target_line) {
+        target_line->curr_target = target;   
+		target_line = target_line->next;
+    }
 
 	if (e != JIM_OK) {
 		free(target->type);

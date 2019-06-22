@@ -129,6 +129,7 @@ struct target {
 	int target_number;					/* DO NOT USE!  field to be removed in 2010 */
 	struct jtag_tap *tap;				/* where on the jtag chain is this */
 	int32_t coreid;						/* which device on the TAP? */
+	uint32_t core_info;						/* which device on the TAP? */
 
 	/** Should we defer examine to later */
 	bool defer_examine;
@@ -175,6 +176,7 @@ struct target {
 	void *arch_info;					/* architecture specific information */
 	void *private_config;				/* pointer to target specific config data (for jim_configure hook) */
 	struct target *next;				/* next target in list */
+	struct target *curr_target;			/* current target */
 
 	int display;						/* display async info in telnet session. Do not display
 										 * lots of halted/resumed info when stepping in debugger. */

@@ -477,6 +477,7 @@ void jtag_add_plain_dr_scan(int num_bits, const uint8_t *out_bits, uint8_t *in_b
 
 void jtag_add_tlr(void)
 {
+    LOG_DEBUG("######## add tlr");
 	jtag_prelude(TAP_RESET);
 	jtag_set_error(interface_jtag_add_tlr());
 
@@ -1049,6 +1050,7 @@ static int jtag_examine_chain(void)
 
 	/* Add room for end-of-chain marker. */
 	max_taps++;
+	//max_taps = 1;
 
 	uint8_t *idcode_buffer = malloc(max_taps * 4);
 	if (idcode_buffer == NULL)
@@ -1250,7 +1252,7 @@ static int jtag_validate_ircapture(void)
 	}
 
 	/* verify the '11' sentinel we wrote is returned at the end */
-	val = buf_get_u64(ir_test, chain_pos, 2);
+	/*val = buf_get_u64(ir_test, chain_pos, 2);
 	if (val != 0x3) {
 		char *cbuf = buf_to_str(ir_test, total_ir_length, 16);
 
@@ -1258,7 +1260,7 @@ static int jtag_validate_ircapture(void)
 			chain_pos, cbuf);
 		free(cbuf);
 		retval = ERROR_JTAG_INIT_FAILED;
-	}
+	}*/
 
 done:
 	free(ir_test);
@@ -1466,6 +1468,17 @@ int jtag_init_inner(struct command_context *cmd_ctx)
 	else
 		LOG_WARNING("Bypassing JTAG setup events due to errors");
 
+
+/*	struct scan_field field;
+    uint8_t ir_test[4]={0};
+
+    ir_test[0] = 0x9f;
+    ir_test[1] = 0x02;
+	field.num_bits = 10;
+	field.out_value = ir_test;
+	field.in_value = ir_test;
+	jtag_add_plain_ir_scan(field.num_bits, field.out_value, field.in_value, TAP_IDLE);
+    jtag_execute_queue();*/
 
 	return ERROR_OK;
 }

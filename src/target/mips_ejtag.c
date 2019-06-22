@@ -290,8 +290,40 @@ error:
 	return retval;
 }
 
+int mips_ejtag_open_core(struct mips_ejtag *ejtag_info, uint32_t coreid){
+    LOG_DEBUG("mips_ejtag_open_core");
+	//struct pracc_queue_info ctx = {.max_code = 9};
+	struct pracc_queue_info ctx = {.max_code = 14};
+    uint32_t ccu_csrr = ~(1 << coreid);
+	pracc_queue_init(&ctx);
+	if (ctx.retval != ERROR_OK)
+		goto exit;
+
+	pracc_add(&ctx, 0, MIPS32_MTC0(1, 31, 0));				/* move $1 to COP0 DeSave */
+	if (1){
+        pracc_add(&ctx, 0, MIPS32_LUI(1, 0xb220));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	    pracc_add(&ctx, 0, MIPS32_ORI(1, 1, 0x0f00));				/* $1 = MIP32_PRACC_BASE_ADDR */
+        pracc_add(&ctx, 0, MIPS32_LUI(9, 0xbfc0));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	    pracc_add(&ctx, 0, MIPS32_ORI(9, 9, 0));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	    pracc_add(&ctx, 0, MIPS32_SW(9, 0, 1));				/* $1 = MIP32_PRACC_BASE_ADDR */
+    }
+	pracc_add(&ctx, 0, MIPS32_LUI(1, 0xb220));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	pracc_add(&ctx, 0, MIPS32_ORI(1, 1, 0x40));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	pracc_add(&ctx, 0, MIPS32_LW(9, 0, 1));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	pracc_add(&ctx, 0, MIPS32_ANDI(9, 9, LOWER16(ccu_csrr)));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	pracc_add(&ctx, 0, MIPS32_SW(9, 0, 1));				/* $1 = MIP32_PRACC_BASE_ADDR */
+	pracc_add(&ctx, 0, MIPS32_MFC0(1, 31, 0));					/* move COP0 DeSave to $1, restore reg1 */
+	pracc_add(&ctx, 0, MIPS32_B(NEG16(ctx.code_count + 1)));					/* jump to start */
+	pracc_add(&ctx, 0, MIPS32_MTC0(15, 31, 0));					/* load $15 in DeSave */
+	ctx.retval = mips32_pracc_queue_exec(ejtag_info, &ctx, NULL);
+exit:
+	pracc_queue_free(&ctx);
+	return ctx.retval;
+}
+
 int mips_ejtag_enter_debug(struct mips_ejtag *ejtag_info)
 {
+    LOG_DEBUG("mips_ejtag_enter_debug");
 	uint32_t ejtag_ctrl;
 	mips_ejtag_set_instr(ejtag_info, EJTAG_INST_CONTROL);
 
@@ -319,13 +351,38 @@ error:
 
 int mips_ejtag_exit_debug(struct mips_ejtag *ejtag_info)
 {
-	pa_list pracc_list = {.instr = MIPS32_DRET, .addr = 0};
-	struct pracc_queue_info ctx = {.pracc_list = &pracc_list, .code_count = 1, .store_count = 0};
+    LOG_DEBUG("mips_ejtag_exit_debug");
+	struct pracc_queue_info ctx = {.max_code = 13};
+    uint32_t coreid_info;
+	pracc_queue_init(&ctx);
+	if (ctx.retval != ERROR_OK)
+		goto exit;
+	pracc_add(&ctx, 0, MIPS32_MTC0(1, 31, 0));				/* move $1 to COP0 DeSave */
+	pracc_add(&ctx, 0, MIPS32_LUI(1, 0xb220));			
+	pracc_add(&ctx, 0, MIPS32_ORI(1, 1, 0x40));
+    LOG_DEBUG("CORE_INFOejtag_info->core_info: 0x%08x", ejtag_info->core_info);
+    if ((ejtag_info->core_info & (1 << ejtag_info->coreid)) != 0){
+        coreid_info = 1 << ejtag_info->coreid;
+	    pracc_add(&ctx, 0, MIPS32_NOP);				/* add two nop just for confirm nop instructions after DERET in */
+	    pracc_add(&ctx, 0, MIPS32_NOP);				/* the function mips32_pracc_exec() */
+	    pracc_add(&ctx, 0, MIPS32_LUI(8, UPPER16(SOFTRESET_CORE_EXIT_DEBUG_DEPC)));		
+	    pracc_add(&ctx, 0, MIPS32_ORI(8, 8, LOWER16(SOFTRESET_CORE_EXIT_DEBUG_DEPC)));			
+	    pracc_add(&ctx, 0, MIPS32_MTC0(8, 24, 0));				
+	    pracc_add(&ctx, 0, MIPS32_LW(9, 0, 1));		
+	    pracc_add(&ctx, 0, MIPS32_ORI(9, 9, LOWER16(coreid_info)));	
+	    pracc_add(&ctx, 0, MIPS32_SW(9, 0, 1));			
+    } 
+	pracc_add(&ctx, 0, MIPS32_MFC0(1, 31, 0));					/* move COP0 DeSave to $1, restore reg1 */
+	pracc_add(&ctx, 0, MIPS32_DRET);		
+	//pa_list pracc_list = {.instr = MIPS32_DRET, .addr = 0};
+	//struct pracc_queue_info ctx = {.pracc_list = &pracc_list, .code_count = 1, .store_count = 0};
 
 	/* execute our dret instruction */
 	ctx.retval = mips32_pracc_queue_exec(ejtag_info, &ctx, NULL);
 
 	/* pic32mx workaround, false pending at low core clock */
+exit:
+	pracc_queue_free(&ctx);
 	jtag_add_sleep(1000);
 	return ctx.retval;
 }
@@ -423,6 +480,7 @@ int mips_ejtag_init(struct mips_ejtag *ejtag_info)
 	retval = mips_ejtag_get_impcode(ejtag_info, &ejtag_info->impcode);
 	if (retval != ERROR_OK)
 		return retval;
+    ejtag_info->impcode = 0x20404000;
 	LOG_DEBUG("impcode: 0x%8.8" PRIx32 "", ejtag_info->impcode);
 
 	/* get ejtag version */

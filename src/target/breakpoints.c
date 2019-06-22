@@ -24,6 +24,7 @@
 #endif
 
 #include "target.h"
+#include "target_type.h"
 #include <helper/log.h>
 #include "breakpoints.h"
 
@@ -222,17 +223,28 @@ int breakpoint_add(struct target *target,
 	uint32_t length,
 	enum breakpoint_type type)
 {
+    LOG_DEBUG("breakpoint add 8888888888888888888");
 	int retval = ERROR_OK;
 	if (target->smp) {
 		struct target_list *head;
 		struct target *curr;
 		head = target->head;
-		if (type == BKPT_SOFT)
-			return breakpoint_add_internal(head->target, address, length, type);
+		if (type == BKPT_SOFT){
+            LOG_DEBUG("add software breakpoint target_coreid %d , address: 0x%08x", target->coreid, address);
+			//return breakpoint_add_internal(head->target, address, length, type);
+			return breakpoint_add_internal(target, address, length, type); //to do
+        }
 
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+            if (target != curr){
+                target->type->handle_last_fetch(target, curr);
+            }
 			retval = breakpoint_add_internal(curr, address, length, type);
+            if (target != curr){
+                target->type->handle_last_fetch(curr, target);
+            }
+            LOG_DEBUG("add hardware breakpoint target_coreid %d , address: 0x%08x", target->coreid, address);
 			if (retval != ERROR_OK)
 				return retval;
 			head = head->next;
@@ -253,7 +265,13 @@ int context_breakpoint_add(struct target *target,
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+            if (target != curr){
+                target->type->handle_last_fetch(target, curr);
+            }
 			retval = context_breakpoint_add_internal(curr, asid, length, type);
+            if (target != curr){
+                target->type->handle_last_fetch(curr, target);
+            }
 			if (retval != ERROR_OK)
 				return retval;
 			head = head->next;
@@ -275,7 +293,13 @@ int hybrid_breakpoint_add(struct target *target,
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+            if (target != curr){
+                target->type->handle_last_fetch(target, curr);
+            }
 			retval = hybrid_breakpoint_add_internal(curr, address, asid, length, type);
+            if (target != curr){
+                target->type->handle_last_fetch(curr, target);
+            }
 			if (retval != ERROR_OK)
 				return retval;
 			head = head->next;
@@ -335,6 +359,7 @@ int breakpoint_remove_internal(struct target *target, uint32_t address)
 }
 void breakpoint_remove(struct target *target, uint32_t address)
 {
+    LOG_DEBUG("breakpoint_remove target_id: %d", target->coreid);
 	int found = 0;
 	if (target->smp) {
 		struct target_list *head;
@@ -342,7 +367,13 @@ void breakpoint_remove(struct target *target, uint32_t address)
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+            if (target != curr){
+                target->type->handle_last_fetch(target, curr);
+            }
 			found += breakpoint_remove_internal(curr, address);
+            if (target != curr){
+                target->type->handle_last_fetch(curr, target);
+            }
 			head = head->next;
 		}
 		if (found == 0)
@@ -367,7 +398,13 @@ void breakpoint_clear_target(struct target *target)
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+            if (target != curr){
+                target->type->handle_last_fetch(target, curr);
+            }
 			breakpoint_clear_target_internal(curr);
+            if (target != curr){
+                target->type->handle_last_fetch(curr, target);
+            }
 			head = head->next;
 		}
 	} else
@@ -378,10 +415,10 @@ void breakpoint_clear_target(struct target *target)
 struct breakpoint *breakpoint_find(struct target *target, uint32_t address)
 {
 	struct breakpoint *breakpoint = target->breakpoints;
-
 	while (breakpoint) {
-		if (breakpoint->address == address)
+		if (breakpoint->address == address){
 			return breakpoint;
+        }
 		breakpoint = breakpoint->next;
 	}
 

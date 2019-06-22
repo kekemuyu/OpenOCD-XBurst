@@ -274,6 +274,8 @@ struct target_type {
 	 */
 	int (*profiling)(struct target *target, uint32_t *samples,
 			uint32_t max_num_samples, uint32_t *num_samples, uint32_t seconds);
+
+    int (*handle_last_fetch)(struct target *target, struct target *curr);
 };
 
 #endif /* OPENOCD_TARGET_TARGET_TYPE_H */

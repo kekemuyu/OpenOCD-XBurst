@@ -182,6 +182,7 @@ static int mips32_get_core_reg(struct reg *reg)
 
 static int mips32_set_core_reg(struct reg *reg, uint8_t *buf)
 {
+    LOG_DEBUG("mips32_set_core_reg");
 	struct mips32_core_reg *mips32_reg = reg->arch_info;
 	struct target *target = mips32_reg->target;
 	uint32_t value = buf_get_u32(buf, 0, 32);
@@ -211,7 +212,43 @@ static int mips32_read_core_reg(struct target *target, unsigned int num)
 	mips32->core_cache->reg_list[num].valid = 1;
 	mips32->core_cache->reg_list[num].dirty = 0;
 
+	LOG_DEBUG("read core reg %i value 0x%" PRIx32 "", num , reg_value);
+
 	return ERROR_OK;
+}
+
+int mips32_read_core_info(struct target *target)
+{
+    LOG_DEBUG("mips32_read_core_info");
+	/* get pointers to arch-specific information */
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+    struct target *curr;
+    struct target_list *head;
+
+    mips32_pracc_read_core_info(ejtag_info, &mips32->core_info);
+    target->core_info = mips32->core_info;
+
+	head = target->head;
+	while (head != (struct target_list *)NULL) {
+        curr = head->target;  
+        if (curr != target){
+            curr->core_info = target->core_info;
+            LOG_DEBUG("curr->coreid %d", curr->coreid);
+        }
+	    head = head->next;
+    }
+    LOG_DEBUG("CORE_INFOmips32_read_core_info : 0x%08x, target_coreid %d", target->core_info, target->coreid);
+	return ERROR_OK;
+}
+
+int mips32_read_reset_entry(struct target *target){
+    LOG_DEBUG("mips32_step_read_core_info");
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+    uint32_t reset_entry;
+    mips32_pracc_read_reset_entry(ejtag_info, &reset_entry);
+    return reset_entry;
 }
 
 static int mips32_write_core_reg(struct target *target, unsigned int num)
@@ -236,6 +273,7 @@ static int mips32_write_core_reg(struct target *target, unsigned int num)
 int mips32_get_gdb_reg_list(struct target *target, struct reg **reg_list[],
 		int *reg_list_size, enum target_register_class reg_class)
 {
+    LOG_DEBUG("mips32_get_gdb_reg_list");
 	/* get pointers to arch-specific information */
 	struct mips32_common *mips32 = target_to_mips32(target);
 	unsigned int i;
@@ -252,6 +290,7 @@ int mips32_get_gdb_reg_list(struct target *target, struct reg **reg_list[],
 
 int mips32_save_context(struct target *target)
 {
+    LOG_DEBUG("mips32_save_context");
 	unsigned int i;
 
 	/* get pointers to arch-specific information */
@@ -261,16 +300,18 @@ int mips32_save_context(struct target *target)
 	/* read core registers */
 	mips32_pracc_read_regs(ejtag_info, mips32->core_regs);
 
+
 	for (i = 0; i < MIPS32_NUM_REGS; i++) {
 		if (!mips32->core_cache->reg_list[i].valid)
 			mips32->read_core_reg(target, i);
 	}
-
+    //LOG_DEBUG("depc : 0x%08x", *(mips32->core_cache->reg_list[i].value));
 	return ERROR_OK;
 }
 
 int mips32_restore_context(struct target *target)
 {
+    LOG_DEBUG("mips32_restore_context");
 	unsigned int i;
 
 	/* get pointers to arch-specific information */
@@ -292,11 +333,11 @@ int mips32_arch_state(struct target *target)
 {
 	struct mips32_common *mips32 = target_to_mips32(target);
 
-	LOG_USER("target halted in %s mode due to %s, pc: 0x%8.8" PRIx32 "",
+    LOG_USER("target halted in %s mode due to %s, pc: 0x%8.8" PRIx32 "",
 		mips_isa_strings[mips32->isa_mode],
 		debug_reason_name(target),
 		buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32));
-
+    LOG_DEBUG("target_coreid : %d" , target->coreid);
 	return ERROR_OK;
 }
 
@@ -372,6 +413,7 @@ struct reg_cache *mips32_build_reg_cache(struct target *target)
 
 int mips32_init_arch_info(struct target *target, struct mips32_common *mips32, struct jtag_tap *tap)
 {
+    LOG_DEBUG("mips32_init_arch_info");
 	target->arch_info = mips32;
 	mips32->common_magic = MIPS32_COMMON_MAGIC;
 	mips32->fast_data_area = NULL;
@@ -560,10 +602,11 @@ static int mips32_configure_ibs(struct target *target)
 	uint32_t bpinfo;
 
 	/* get number of inst breakpoints */
+    LOG_DEBUG("mips32_configure_ibs");
 	retval = target_read_u32(target, ejtag_info->ejtag_ibs_addr, &bpinfo);
 	if (retval != ERROR_OK)
 		return retval;
-
+    LOG_DEBUG("bpinfo: 0x%08x, ejtag_ibs_addr: 0x%08x", bpinfo, ejtag_info->ejtag_ibs_addr);
 	mips32->num_inst_bpoints = (bpinfo >> 24) & 0x0F;
 	mips32->num_inst_bpoints_avail = mips32->num_inst_bpoints;
 	mips32->inst_break_list = calloc(mips32->num_inst_bpoints,
@@ -621,7 +664,7 @@ int mips32_configure_break_unit(struct target *target)
 	retval = target_read_u32(target, EJTAG_DCR, &dcr);
 	if (retval != ERROR_OK)
 		return retval;
-
+    LOG_INFO("=================@@@@@@@@@@@@@@@@@@@@@@@@@@@@@ dcr: 0x%08x, ejtag_version: %d", dcr, ejtag_info->ejtag_version);
 	/* EJTAG 2.0 defines IB and DB bits in IMP instead of DCR. */
 	if (ejtag_info->ejtag_version == EJTAG_VERSION_20) {
 		ejtag_info->debug_caps = dcr & EJTAG_DCR_ENM;
@@ -833,6 +876,19 @@ int mips32_blank_check_memory(struct target *target,
 	target_free_working_area(target, erase_check_algorithm);
 
 	return retval;
+}
+
+int mips32_close_watchdog(struct target *target){
+    LOG_DEBUG("!!!!mips32_close_watchdog");
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+	int retval = ERROR_OK;
+
+    retval = mips32_pracc_close_watchdog(ejtag_info);
+    if (retval != ERROR_OK){
+        return retval;
+    }
+    return ERROR_OK;
 }
 
 static int mips32_verify_pointer(struct command_context *cmd_ctx,

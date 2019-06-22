@@ -103,6 +103,8 @@ struct mips32_common {
 	/* register cache to processor synchronization */
 	int (*read_core_reg)(struct target *target, unsigned int num);
 	int (*write_core_reg)(struct target *target, unsigned int num);
+
+    uint32_t core_info;
 };
 
 static inline struct mips32_common *
@@ -202,6 +204,7 @@ struct mips32_algorithm {
 
 #define MIPS32_SYNC			0xF
 #define MIPS32_SYNCI_STEP	0x1	/* reg num od address step size to be used with synci instruction */
+#define MIPS32_EHB			0xc0
 
 /**
  * Cache operations definitions
@@ -216,6 +219,8 @@ struct mips32_algorithm {
 #define MIPS32_DRET					0x4200001F
 #define MIPS32_SDBBP				0x7000003F	/* MIPS32_J_INST(MIPS32_OP_SPECIAL2, MIPS32_OP_SDBBP) */
 #define MIPS16_SDBBP				0xE801
+
+#define CCU_RESET_ENTRY				0xbfc00000
 
 extern const struct command_registration mips32_command_handlers[];
 
@@ -250,5 +255,8 @@ int mips32_checksum_memory(struct target *target, uint32_t address,
 		uint32_t count, uint32_t *checksum);
 int mips32_blank_check_memory(struct target *target,
 		uint32_t address, uint32_t count, uint32_t *blank, uint8_t erased_value);
+int mips32_read_core_info(struct target *target);
+int mips32_read_reset_entry(struct target *target);
+int mips32_close_watchdog(struct target *target);
 
 #endif /* OPENOCD_TARGET_MIPS32_H */

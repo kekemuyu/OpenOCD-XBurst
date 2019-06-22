@@ -45,6 +45,7 @@
 
 #define PRACC_BLOCK				128	/* 1 Kbyte */
 #define PRACC_MAX_EXEC_CODE_COUNT		0x0FFFFFFF
+#define L2_CACHE_LINE		    0x4
 
 typedef struct {
 	uint32_t instr;
@@ -107,5 +108,10 @@ int mips32_cp0_read(struct mips_ejtag *ejtag_info,
  */
 int mips32_cp0_write(struct mips_ejtag *ejtag_info,
 		uint32_t val, uint32_t cp0_reg, uint32_t cp0_sel);
+
+int mips32_pracc_handle_last_fetch(struct mips_ejtag *target_ejtag_info, struct mips_ejtag *curr_ejtag_info);
+int mips32_pracc_read_core_info(struct mips_ejtag *ejtag_info, uint32_t *core_info);
+int mips32_pracc_read_reset_entry(struct mips_ejtag *ejtag_info, uint32_t *reset_entry);
+int mips32_pracc_close_watchdog(struct mips_ejtag *ejtag_info);
 
 #endif /* OPENOCD_TARGET_MIPS32_PRACC_H */

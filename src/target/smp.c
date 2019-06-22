@@ -78,6 +78,7 @@ int gdb_read_smp_packet(struct connection *connection,
 int gdb_write_smp_packet(struct connection *connection,
 		char const *packet, int packet_size)
 {
+    LOG_DEBUG("gdb_write_smp_packet");
 	struct target *target = get_target_from_connection(connection);
 	char *separator;
 	int coreid = 0;

@@ -282,7 +282,9 @@ int add_service(char *name,
 		if (listen(c->fd, 1) == -1) {
 			LOG_ERROR("couldn't listen on socket: %s", strerror(errno));
 			exit(-1);
-		}
+        } else {
+            LOG_INFO("ready for connect GDB");
+        }
 	} else if (c->type == CONNECTION_STDINOUT) {
 		c->fd = fileno(stdin);
 

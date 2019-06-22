@@ -1287,6 +1287,7 @@ static int gdb_get_register_packet(struct connection *connection,
 static int gdb_set_register_packet(struct connection *connection,
 	char const *packet, int packet_size)
 {
+    LOG_DEBUG("gdb_set_register_packet");
 	struct target *target = get_target_from_connection(connection);
 	char *separator;
 	uint8_t *bin_buf;
@@ -1296,7 +1297,7 @@ static int gdb_set_register_packet(struct connection *connection,
 	int retval;
 
 	LOG_DEBUG("-");
-
+    LOG_DEBUG("reg_num: 0x%08x", reg_num);
 	retval = target_get_gdb_reg_list(target, &reg_list, &reg_list_size,
 			REG_CLASS_ALL);
 	if (retval != ERROR_OK)
@@ -1324,6 +1325,9 @@ static int gdb_set_register_packet(struct connection *connection,
 
 	gdb_target_to_reg(target, separator + 1, chars, bin_buf);
 
+    for (int i=0; i<4; i++){
+        LOG_DEBUG("bin_buf[%d]: 0x%08x", i , bin_buf[i]);
+    }
 	reg_list[reg_num]->type->set(reg_list[reg_num], bin_buf);
 
 	gdb_put_packet(connection, "OK", 2);
@@ -1353,6 +1357,7 @@ static int gdb_error(struct connection *connection, int retval)
 static int gdb_read_memory_packet(struct connection *connection,
 		char const *packet, int packet_size)
 {
+    LOG_DEBUG("*************gdb_read_memory_packet");
 	struct target *target = get_target_from_connection(connection);
 	char *separator;
 	uint32_t addr = 0;
@@ -1387,6 +1392,14 @@ static int gdb_read_memory_packet(struct connection *connection,
 
 	retval = target_read_buffer(target, addr, len, buffer);
 
+    LOG_DEBUG("7777777read mem addr 0x%08x", addr);
+    for (uint32_t i=0; i < 4; i++){
+        LOG_DEBUG("7777777read mem data 0x%02x", *(buffer+i));
+    }
+    //if(retval != ERROR_OK){
+    //    LOG_ERROR("read_mem error!!!!!");
+    //}
+
 	if ((retval != ERROR_OK) && !gdb_report_data_abort) {
 		/* TODO : Here we have to lie and send back all zero's lest stack traces won't work.
 		 * At some point this might be fixed in GDB, in which case this code can be removed.
@@ -1405,6 +1418,10 @@ static int gdb_read_memory_packet(struct connection *connection,
 		retval = ERROR_OK;
 	}
 
+    for (uint32_t i=0; i < 4; i++){
+        LOG_DEBUG("8888888read mem data 0x%02x", *(buffer+i));
+    }
+
 	if (retval == ERROR_OK) {
 		hex_buffer = malloc(len * 2 + 1);
 
@@ -1413,9 +1430,10 @@ static int gdb_read_memory_packet(struct connection *connection,
 		gdb_put_packet(connection, hex_buffer, pkt_len);
 
 		free(hex_buffer);
-	} else
+	} else{
+    //    LOG_ERROR("read memory fail!!!!!!");
 		retval = gdb_error(connection, retval);
-
+    }
 	free(buffer);
 
 	return retval;
@@ -2779,6 +2797,8 @@ static int gdb_input_inner(struct connection *connection)
 	struct gdb_connection *gdb_con = connection->priv;
 	static int extended_protocol;
 
+	struct target *connection_target = get_target_from_connection(connection);
+    LOG_DEBUG("[IF-CMD]connection_target_coreid: %d", connection_target->coreid);
 	/* drain input buffer. If one of the packets fail, then an error
 	 * packet is replied, if applicable.
 	 *
@@ -2807,9 +2827,11 @@ static int gdb_input_inner(struct connection *connection)
 				for (x = 0; (x < 49) && (packet[x] != ':'); x++)
 					buf[x] = packet[x];
 				buf[x] = 0;
-				LOG_DEBUG("received packet: '%s:<binary-data>'", buf);
+				//LOG_DEBUG("received packet: '%s:<binary-data>'", buf);
+				LOG_DEBUG("[IF-CMD-BUF]'%s:<binary-data>'", buf);
 			} else
-				LOG_DEBUG("received packet: '%s'", packet);
+				//LOG_DEBUG("received packet: '%s'", packet);
+				LOG_DEBUG("[IF-CMD-PKT]'%s'", packet);
 		}
 
 		if (packet_size > 0) {
@@ -2897,6 +2919,7 @@ static int gdb_input_inner(struct connection *connection)
 						 * register values without modifying the target state.
 						 *
 						 */
+                        LOG_DEBUG("[step]121212121212");
 						gdb_sig_halted(connection);
 
 						/* stop forwarding log packets! */
@@ -2908,14 +2931,17 @@ static int gdb_input_inner(struct connection *connection)
 						gdb_con->frontend_state = TARGET_RUNNING;
 						target_call_event_callbacks(target, TARGET_EVENT_GDB_START);
 
+                        LOG_DEBUG("[step]565656565656");
 						if (!already_running) {
 							/* Here we don't want packet processing to stop even if this fails,
 							 * so we use a local variable instead of retval. */
 							retval = gdb_step_continue_packet(connection, packet, packet_size);
+                            LOG_DEBUG("[step]78787878787878");
 							if (retval != ERROR_OK) {
 								/* we'll never receive a halted
 								 * condition... issue a false one..
 								 */
+                                LOG_ERROR("[step]909090909090");
 								gdb_frontend_halted(target, connection);
 							}
 						}
@@ -2992,8 +3018,10 @@ static int gdb_input_inner(struct connection *connection)
 			}
 
 			/* if a packet handler returned an error, exit input loop */
-			if (retval != ERROR_OK)
+			if (retval != ERROR_OK){
+                LOG_ERROR("****=*=*=*=*=*=**=*=*=*=*=*=**=*=*=*=*=*=*=**=*=*=**=");
 				return retval;
+            }   
 		}
 
 		if (gdb_con->ctrl_c) {
