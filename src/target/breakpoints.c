@@ -24,6 +24,7 @@
 #endif
 
 #include "target.h"
+#include "target_type.h"
 #include <helper/log.h>
 #include "breakpoints.h"
 
@@ -228,13 +229,17 @@ int breakpoint_add(struct target *target,
 		struct target *curr;
 		head = target->head;
 		if (type == BKPT_SOFT)
-			return breakpoint_add_internal(head->target, address, length, type);
+			return breakpoint_add_internal(target, address, length, type); //to do
 
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+			if (target != curr)
+				target->type->handle_last_fetch(target, curr);
 			retval = breakpoint_add_internal(curr, address, length, type);
 			if (retval != ERROR_OK)
 				return retval;
+			if (target != curr)
+				target->type->handle_last_fetch(curr, target);
 			head = head->next;
 		}
 		return retval;
@@ -253,9 +258,13 @@ int context_breakpoint_add(struct target *target,
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+			if (target != curr)
+				target->type->handle_last_fetch(target, curr);
 			retval = context_breakpoint_add_internal(curr, asid, length, type);
 			if (retval != ERROR_OK)
 				return retval;
+			if (target != curr)
+				target->type->handle_last_fetch(curr, target);
 			head = head->next;
 		}
 		return retval;
@@ -275,9 +284,13 @@ int hybrid_breakpoint_add(struct target *target,
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+			if (target != curr)
+				target->type->handle_last_fetch(target, curr);
 			retval = hybrid_breakpoint_add_internal(curr, address, asid, length, type);
 			if (retval != ERROR_OK)
 				return retval;
+			if (target != curr)
+				target->type->handle_last_fetch(curr, target);
 			head = head->next;
 		}
 		return retval;
@@ -342,7 +355,11 @@ void breakpoint_remove(struct target *target, uint32_t address)
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+			if (target != curr)
+				target->type->handle_last_fetch(target, curr);
 			found += breakpoint_remove_internal(curr, address);
+			if (target != curr)
+				target->type->handle_last_fetch(curr, target);
 			head = head->next;
 		}
 		if (found == 0)
@@ -367,7 +384,11 @@ void breakpoint_clear_target(struct target *target)
 		head = target->head;
 		while (head != (struct target_list *)NULL) {
 			curr = head->target;
+			if (target != curr)
+				target->type->handle_last_fetch(target, curr);
 			breakpoint_clear_target_internal(curr);
+			if (target != curr)
+				target->type->handle_last_fetch(curr, target);
 			head = head->next;
 		}
 	} else

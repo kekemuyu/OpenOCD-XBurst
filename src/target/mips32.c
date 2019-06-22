@@ -225,6 +225,40 @@ static int mips32_read_core_reg(struct target *target, unsigned int num)
 	return ERROR_OK;
 }
 
+int mips32_read_core_info(struct target *target)
+{
+    LOG_DEBUG("mips32_read_core_info");
+	/* get pointers to arch-specific information */
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+    struct target *curr;
+    struct target_list *head;
+
+    mips32_pracc_read_core_info(ejtag_info, &mips32->core_info);
+    target->core_info = mips32->core_info;
+
+	head = target->head;
+	while (head != (struct target_list *)NULL) {
+        curr = head->target;  
+        if (curr != target){
+            curr->core_info = target->core_info;
+            LOG_DEBUG("curr->coreid %d", curr->coreid);
+        }
+	    head = head->next;
+    }
+    LOG_DEBUG("CORE_INFOmips32_read_core_info : 0x%08x, target_coreid %d", target->core_info, target->coreid);
+	return ERROR_OK;
+}
+
+int mips32_read_reset_entry(struct target *target){
+    LOG_DEBUG("mips32_step_read_core_info");
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+    uint32_t reset_entry;
+    mips32_pracc_read_reset_entry(ejtag_info, &reset_entry);
+    return reset_entry;
+}
+
 static int mips32_write_core_reg(struct target *target, unsigned int num)
 {
 	uint32_t reg_value;
@@ -972,6 +1006,18 @@ int mips32_blank_check_memory(struct target *target,
 	target_free_working_area(target, erase_check_algorithm);
 
 	return retval;
+}
+
+int mips32_close_watchdog(struct target *target){
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+	int retval = ERROR_OK;
+
+    retval = mips32_pracc_close_watchdog(ejtag_info);
+    if (retval != ERROR_OK)
+        return retval;
+
+    return ERROR_OK;
 }
 
 static int mips32_verify_pointer(struct command_context *cmd_ctx,

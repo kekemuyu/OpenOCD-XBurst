@@ -54,10 +54,14 @@
 #define MCHP_ERASE				0xfc
 #define MCHP_STATUS				0x00
 
+/* ejtag control register bits position */
+#define EJTAG_CTRL_COREID_POS   4
+
 /* ejtag control register bits ECR */
 #define EJTAG_CTRL_TOF			(1 << 1)
 #define EJTAG_CTRL_TIF			(1 << 2)
 #define EJTAG_CTRL_BRKST		(1 << 3)
+#define EJTAG_CTRL_COREID		(7 << EJTAG_CTRL_COREID_POS)
 #define EJTAG_CTRL_DLOCK		(1 << 5)
 #define EJTAG_CTRL_DRWN			(1 << 9)
 #define EJTAG_CTRL_DERR			(1 << 10)
@@ -181,6 +185,8 @@
 #define EJTAG_VERSION_41		4
 #define EJTAG_VERSION_51		5
 
+#define SOFTRESET_CORE_EXIT_DEBUG_DEPC		0xbfc00000
+
 struct mips_ejtag {
 	struct jtag_tap *tap;
 	uint32_t impcode;
@@ -216,6 +222,11 @@ struct mips_ejtag {
 
 	uint32_t ejtag_iba_step_size;
 	uint32_t ejtag_dba_step_size;	/* size of step till next *DBAn register. */
+
+    struct  mips_ejtag *ejtag_info_next; 
+    int32_t next_coreid;
+    int32_t coreid; 
+    uint32_t core_info;         /*csrr reg of ccu*/
 };
 
 void mips_ejtag_set_instr(struct mips_ejtag *ejtag_info, uint32_t new_instr);
@@ -233,6 +244,7 @@ int mips_ejtag_fastdata_scan(struct mips_ejtag *ejtag_info, int write_t, uint32_
 
 int mips_ejtag_init(struct mips_ejtag *ejtag_info);
 int mips_ejtag_config_step(struct mips_ejtag *ejtag_info, int enable_step);
+int mips_ejtag_open_core(struct mips_ejtag *ejtag_info, uint32_t coreid);
 
 static inline void mips_le_to_h_u32(jtag_callback_data_t arg)
 {

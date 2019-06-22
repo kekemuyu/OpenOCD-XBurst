@@ -2427,6 +2427,12 @@ static int find_target(struct command_context *cmd_ctx, const char *name)
 	if (cmd_ctx->current_target_override)
 		cmd_ctx->current_target_override = target;
 
+	struct target *target_line = all_targets;
+	while (target_line) {
+        target_line->curr_target = target;   
+		target_line = target_line->next;
+    }
+
 	return ERROR_OK;
 }
 
@@ -2435,7 +2441,10 @@ COMMAND_HANDLER(handle_targets_command)
 {
 	int retval = ERROR_OK;
 	if (CMD_ARGC == 1) {
+		struct target *current_target = get_current_target(CMD_CTX);
 		retval = find_target(CMD_CTX, CMD_ARGV[0]);
+        struct target *order_target = get_current_target(CMD_CTX);
+        current_target->type->handle_last_fetch(current_target, order_target);
 		if (retval == ERROR_OK) {
 			/* we're done! */
 			return retval;
@@ -2598,6 +2607,9 @@ static int handle_target(void *priv)
 			is_jtag_poll_safe() && target;
 			target = target->next) {
 
+        struct target *current_target = target->curr_target;
+        LOG_DEBUG("target_coreid: %d current_coreid: %d", target->coreid, current_target->coreid);
+
 		if (!target_was_examined(target))
 			continue;
 
@@ -2614,6 +2626,9 @@ static int handle_target(void *priv)
 		/* only poll target if we've got power and srst isn't asserted */
 		if (!powerDropout && !srstAsserted) {
 			/* polling may fail silently until the target has been examined */
+            if (target != current_target)
+                current_target->type->handle_last_fetch(current_target, target);
+
 			retval = target_poll(target);
 			if (retval != ERROR_OK) {
 				/* 100ms polling interval. Increase interval between polling up to 5000ms */
@@ -2643,6 +2658,10 @@ static int handle_target(void *priv)
 
 			/* Since we succeeded, we reset backoff count */
 			target->backoff.times = 0;
+
+            if (target != current_target)
+                current_target->type->handle_last_fetch(target, current_target);
+
 		}
 	}
 
@@ -2826,6 +2845,10 @@ int target_wait_state(struct target *target, enum target_state state, int ms)
 	int64_t then = 0, cur;
 	bool once = true;
 
+    if (target->coreid != 0){
+	    return ERROR_OK;
+    }
+
 	for (;;) {
 		retval = target_poll(target);
 		if (retval != ERROR_OK)
@@ -2842,12 +2865,6 @@ int target_wait_state(struct target *target, enum target_state state, int ms)
 
 		if (cur-then > 500)
 			keep_alive();
-
-		if ((cur-then) > ms) {
-			LOG_ERROR("timed out while waiting for target %s",
-				Jim_Nvp_value2name_simple(nvp_target_state, state)->name);
-			return ERROR_FAIL;
-		}
 	}
 
 	return ERROR_OK;
@@ -5467,6 +5484,8 @@ static int target_create(Jim_GetOptInfo *goi)
 	target->rtos = NULL;
 	target->rtos_auto_detect = false;
 
+    target->curr_target = target;
+
 	/* Do the rest as "configure" options */
 	goi->isconfigure = 1;
 	e = target_configure(goi, target);
@@ -5475,6 +5494,12 @@ static int target_create(Jim_GetOptInfo *goi)
 		Jim_SetResultString(goi->interp, "-chain-position required when creating target", -1);
 		e = JIM_ERR;
 	}
+
+	struct target *target_line = all_targets;
+	while (target_line) {
+        target_line->curr_target = target;   
+		target_line = target_line->next;
+    }
 
 	if (e != JIM_OK) {
 		free(target->type);

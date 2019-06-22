@@ -27,6 +27,9 @@
 #include "target_type.h"
 #include "register.h"
 
+static int mips_xburst_step_handle(struct target *target, int current,
+		uint32_t address, int handle_breakpoints);
+
 static void mips_xburst_enable_breakpoints(struct target *target);
 static void mips_xburst_enable_watchpoints(struct target *target);
 static int mips_xburst_set_breakpoint(struct target *target,
@@ -94,6 +97,9 @@ static int mips_xburst_debug_entry(struct target *target)
 
 	mips32_save_context(target);
 
+    /*close the watchdog when we debug the uboot*/
+    mips32_close_watchdog(target);
+
 	/* make sure stepping disabled, SSt bit in CP0 debug register cleared */
 	mips_ejtag_config_step(ejtag_info, 0);
 
@@ -128,17 +134,44 @@ static struct target *get_mips_xburst(struct target *target, int32_t coreid)
 	return target;
 }
 
+static int mips_xburst_handle_last_fetch(struct target *target, struct target *curr)
+{
+    struct mips32_common *mips32_target = target_to_mips32(target);
+    struct mips_ejtag *target_ejtag_info = &mips32_target->ejtag_info;
+
+    struct mips32_common *mips32_curr = target_to_mips32(curr);
+    struct mips_ejtag *curr_ejtag_info = &mips32_curr->ejtag_info;
+
+    curr_ejtag_info->coreid = curr->coreid;
+    target_ejtag_info->coreid = target->coreid;
+
+    int retval = mips32_pracc_handle_last_fetch(target_ejtag_info, curr_ejtag_info);
+
+    return retval;
+}
+
 static int mips_xburst_halt_smp(struct target *target)
 {
 	int retval = ERROR_OK;
 	struct target_list *head;
 	struct target *curr;
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+
 	head = target->head;
+    mips32_read_core_info(target); //only core not soft reset can read core info
 	while (head != (struct target_list *)NULL) {
 		int ret = ERROR_OK;
 		curr = head->target;
-		if ((curr != target) && (curr->state != TARGET_HALTED))
+		if ((curr != target) && (curr->state != TARGET_HALTED)) {
+            if ((target->core_info & (1 << curr->coreid)) != 0){ //add for open core when the first core in debug mode
+                mips_ejtag_open_core(ejtag_info, curr->coreid);
+            }
+			mips_xburst_handle_last_fetch(target, curr);
+            curr->curr_target = target;
 			ret = mips_xburst_halt(curr);
+			mips_xburst_handle_last_fetch(curr, target);
+		}
 
 		if (ret != ERROR_OK) {
 			LOG_ERROR("halt failed target->coreid: %" PRId32, curr->coreid);
@@ -167,6 +200,7 @@ static int mips_xburst_poll(struct target *target)
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
 	uint32_t ejtag_ctrl = ejtag_info->ejtag_ctrl;
 	enum target_state prev_target_state = target->state;
+    int32_t ejtag_ctrl_coreid;
 
 	/*  toggle to another core is done by gdb as follow */
 	/*  maint packet J core_id */
@@ -201,8 +235,20 @@ static int mips_xburst_poll(struct target *target)
 		LOG_DEBUG("Reset Detected");
 	}
 
+    /*this second read ctrl register is because for giving more time to 
+      the coreid of ctrl register about checking core*/
+	ejtag_ctrl = ejtag_info->ejtag_ctrl;
+	retval = mips_ejtag_drscan_32(ejtag_info, &ejtag_ctrl);
+	if (retval != ERROR_OK)
+			return retval;
+
+    ejtag_ctrl_coreid = (int32_t)((ejtag_ctrl & EJTAG_CTRL_COREID) >> EJTAG_CTRL_COREID_POS);
+    ejtag_ctrl_coreid = (int32_t)((ejtag_ctrl & EJTAG_CTRL_COREID) >> EJTAG_CTRL_COREID_POS);
+
 	/* check for processor halted */
-	if (ejtag_ctrl & EJTAG_CTRL_BRKST) {
+	if (((ejtag_ctrl & EJTAG_CTRL_BRKST) != 0) && ((ejtag_ctrl & EJTAG_CTRL_PRACC) != 0)) {
+        if (ejtag_ctrl_coreid != target->coreid)
+            return ERROR_OK;
 		if ((target->state != TARGET_HALTED)
 		    && (target->state != TARGET_DEBUG_RUNNING)) {
 			if (target->state == TARGET_UNKNOWN)
@@ -215,9 +261,6 @@ static int mips_xburst_poll(struct target *target)
 			 */
 			mips_ejtag_set_instr(ejtag_info, EJTAG_INST_NORMALBOOT);
 			target->state = TARGET_HALTED;
-			retval = mips_xburst_debug_entry(target);
-			if (retval != ERROR_OK)
-				return retval;
 
 			if (target->smp &&
 				((prev_target_state == TARGET_RUNNING)
@@ -226,13 +269,14 @@ static int mips_xburst_poll(struct target *target)
 				if (retval != ERROR_OK)
 					return retval;
 			}
-			target_call_event_callbacks(target, TARGET_EVENT_HALTED);
-		} else if (target->state == TARGET_DEBUG_RUNNING) {
-			target->state = TARGET_HALTED;
 
 			retval = mips_xburst_debug_entry(target);
 			if (retval != ERROR_OK)
 				return retval;
+
+			target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+		} else if (target->state == TARGET_DEBUG_RUNNING) {
+			target->state = TARGET_HALTED;
 
 			if (target->smp) {
 				retval = update_halt_gdb(target);
@@ -240,9 +284,13 @@ static int mips_xburst_poll(struct target *target)
 					return retval;
 			}
 
+			retval = mips_xburst_debug_entry(target);
+			if (retval != ERROR_OK)
+				return retval;
+
 			target_call_event_callbacks(target, TARGET_EVENT_DEBUG_HALTED);
 		}
-	} else
+	} else if (ejtag_ctrl_coreid == target->coreid)
 		target->state = TARGET_RUNNING;
 
 	return ERROR_OK;
@@ -252,6 +300,9 @@ static int mips_xburst_halt(struct target *target)
 {
 	struct mips32_common *mips32 = target_to_mips32(target);
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+
+    ejtag_info->core_info = target->core_info;
+    ejtag_info->coreid = target->coreid;
 
 	LOG_DEBUG("target->state: %s", target_state_name(target));
 
@@ -334,16 +385,9 @@ static int mips_xburst_assert_reset(struct target *target)
 		mips_ejtag_drscan_32_out(ejtag_info, ejtag_ctrl);
 	}
 
-	target->state = TARGET_RESET;
 	jtag_add_sleep(50000);
 
 	register_cache_invalidate(mips_xburst->mips32.core_cache);
-
-	if (target->reset_halt) {
-		int retval = target_halt(target);
-		if (retval != ERROR_OK)
-			return retval;
-	}
 
 	return ERROR_OK;
 }
@@ -382,6 +426,8 @@ static int mips_xburst_restore_smp(struct target *target, uint32_t address, int 
 	int retval = ERROR_OK;
 	struct target_list *head;
 	struct target *curr;
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips32_common *mips32_curr;
 
 	head = target->head;
 	while (head != (struct target_list *)NULL) {
@@ -389,6 +435,9 @@ static int mips_xburst_restore_smp(struct target *target, uint32_t address, int 
 		curr = head->target;
 		if ((curr != target) && (curr->state != TARGET_RUNNING)) {
 			/*  resume current address , not in step mode */
+	        mips32_curr = target_to_mips32(curr);
+	        struct mips_ejtag *ejtag_info = &mips32_curr->ejtag_info;
+            ejtag_info->core_info = mips32->core_info; 
 			ret = mips_xburst_internal_restore(curr, 1, address,
 						   handle_breakpoints, 0);
 
@@ -410,6 +459,11 @@ static int mips_xburst_internal_restore(struct target *target, int current,
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
 	struct breakpoint *breakpoint = NULL;
 	uint32_t resume_pc;
+    struct mips32_common *mips32_next;
+    struct mips_ejtag *ejtag_info_next;
+
+    ejtag_info->ejtag_info_next = NULL;
+    ejtag_info->core_info = target->core_info;
 
 	if (target->state != TARGET_HALTED) {
 		LOG_WARNING("target not halted");
@@ -447,6 +501,25 @@ static int mips_xburst_internal_restore(struct target *target, int current,
 			mips_xburst_set_breakpoint(target, breakpoint);
 		}
 	}
+
+    if (target == target->curr_target){
+	    mips32_next = target_to_mips32(target->head->target);
+	    ejtag_info_next = &mips32_next->ejtag_info;
+        ejtag_info->ejtag_info_next = ejtag_info_next;
+        ejtag_info->next_coreid = target->head->target->coreid;
+    }
+    else if(target->next){
+	    mips32_next = target_to_mips32(target->next);
+	    ejtag_info_next = &mips32_next->ejtag_info;
+        ejtag_info->ejtag_info_next = ejtag_info_next;
+        ejtag_info->next_coreid = target->next->coreid;
+    } else {
+	    mips32_next = target_to_mips32(target->curr_target);
+	    ejtag_info_next = &mips32_next->ejtag_info;
+        ejtag_info->ejtag_info_next = ejtag_info_next;
+        ejtag_info->next_coreid = target->curr_target->coreid;
+        LOG_DEBUG("ejtag_info->next_coreid : %d", ejtag_info->next_coreid);
+    }
 
 	/* enable interrupts if we are running */
 	mips32_enable_interrupts(target, !debug_execution);
@@ -506,6 +579,9 @@ static int mips_xburst_step(struct target *target, int current,
 	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
 	struct breakpoint *breakpoint = NULL;
 
+    ejtag_info->ejtag_info_next = NULL;
+    ejtag_info->core_info = target->core_info;
+
 	if (target->state != TARGET_HALTED) {
 		LOG_WARNING("target not halted");
 		return ERROR_TARGET_NOT_HALTED;
@@ -554,6 +630,136 @@ static int mips_xburst_step(struct target *target, int current,
 	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
 
 	return ERROR_OK;
+}
+
+static int mips_xburst_step_handle_exit_debug(struct target *target, struct target *check_to_target, int handle_breakpoints){
+	struct mips32_common *mips32 = target_to_mips32(target);
+	struct mips_ejtag *ejtag_info = &mips32->ejtag_info;
+	struct mips32_common *check_to_mips32 = target_to_mips32(check_to_target);
+	struct mips_ejtag *check_to_ejtag_info = &check_to_mips32->ejtag_info;
+	struct breakpoint *breakpoint = NULL;
+	uint32_t resume_pc;
+    int retval;
+    ejtag_info->ejtag_info_next = NULL;
+    ejtag_info->core_info = target->core_info;
+
+	resume_pc = buf_get_u32(mips32->core_cache->reg_list[MIPS32_PC].value, 0, 32);
+	mips32_restore_context(target);
+    if (check_to_target != target){
+	    /* the front-end may request us not to handle breakpoints */
+	    if (handle_breakpoints) {
+	    	/* Single step past breakpoint at current address */
+	    	breakpoint = breakpoint_find(target, resume_pc);
+	    	if (breakpoint) {
+	    		LOG_DEBUG("unset breakpoint at 0x%8.8" PRIx32 "", breakpoint->address);
+	    		mips_xburst_unset_breakpoint(target, breakpoint);
+	    		mips_xburst_single_step_core(target);
+	    		mips_xburst_set_breakpoint(target, breakpoint);
+	    	}
+	    }
+        ejtag_info->ejtag_info_next = check_to_ejtag_info;
+        ejtag_info->next_coreid = check_to_target->coreid;
+	    /* enable interrupts if we are running */
+	    mips32_enable_interrupts(target, 1);
+    }
+
+	/* exit debug mode */
+    retval = mips_ejtag_exit_debug(ejtag_info);
+
+	target->debug_reason = DBG_REASON_NOTHALTED;
+
+	/* registers are now invalid */
+	register_cache_invalidate(mips32->core_cache);
+
+    target->state = TARGET_RUNNING;
+
+    if (retval != ERROR_OK)
+        return retval;
+
+    return ERROR_OK;
+}
+
+/*for step all targets when gdb step a target, first step the target which is soft reset 
+* after then, step the rest target to */
+static int mips_xburst_step_handle(struct target *target, int current,
+		uint32_t address, int handle_breakpoints)
+{
+    LOG_DEBUG("mips_xburst_step  address: 0x%08x  current: %d", address, current);
+	int retval = ERROR_OK;
+	struct target_list *head;
+	struct target *curr;
+
+	head = target->head;
+    LOG_DEBUG("target_core_info: 0x%08x", target->core_info);
+	while (head != (struct target_list *)NULL) {
+		curr = head->target;
+        if ((target->core_info & (1 << curr->coreid)) != 0){
+            LOG_DEBUG("soft reset target id: %d  curr_id: %d", target->coreid, curr->coreid);
+            LOG_DEBUG("target->core_info 0x%08x", target->core_info);
+
+            if(curr != target){
+                retval = mips_xburst_handle_last_fetch(target, curr);
+            }
+
+            if (retval == ERROR_OK){
+                retval = mips_xburst_step_handle_exit_debug(curr, curr, handle_breakpoints);
+            }
+
+            if (curr != target){
+                retval = mips_xburst_handle_last_fetch(curr, target);
+            }        
+        }
+		if (retval != ERROR_OK) {
+			LOG_ERROR("step failed target->coreid: %" PRId32, curr->coreid);
+			return retval;
+		}
+		head = head->next;
+	}
+
+	head = target->head;
+	while (head != (struct target_list *)NULL) {
+		curr = head->target;
+        if ((target->core_info & (1 << curr->coreid)) == 0){
+                LOG_DEBUG("not soft reset target id: %d  curr_id: %d", target->coreid, curr->coreid);
+                LOG_DEBUG("target->core_info 0x%08x", target->core_info);
+
+                if(curr != target){
+                    retval = mips_xburst_handle_last_fetch(target, curr);
+                    curr->curr_target = target;
+                    if (retval == ERROR_OK){
+                        retval = mips_xburst_step_handle_exit_debug(curr, target, handle_breakpoints);
+                    }
+                    //can't use mips_xburst_handle_last_fetch to checkout from a core exit debug mode to another core
+                    //so check out current target when it exit debug mode
+                }
+        }
+		if (retval != ERROR_OK) {
+			LOG_ERROR("step failed target->coreid: %" PRId32, curr->coreid);
+			return retval;
+		}
+		head = head->next;
+	}
+
+    retval = mips_xburst_step(target, current, address, handle_breakpoints);
+    LOG_DEBUG("mips_xburst_step_handle update_halt_gdb target_id %d", target->coreid);
+	target->gdb_service->core[0] = -1; //for update_halt_gdb
+    update_halt_gdb(target);
+
+	head = target->head;
+	while (head != (struct target_list *)NULL) {
+		curr = head->target;
+        LOG_DEBUG("target id: %d  curr_id: %d", target->coreid, curr->coreid);
+        if(curr != target){
+            retval = mips_xburst_handle_last_fetch(target, curr);
+            curr->state = TARGET_HALTED;       
+            mips_xburst_debug_entry(curr);
+            retval = mips_xburst_handle_last_fetch(curr, target);
+        }
+		head = head->next;
+	}//modify the target state here because I find there is no mips_xburst_poll between two mips_xburst_step_handle
+
+	target_call_event_callbacks(target, TARGET_EVENT_HALTED);
+    return ERROR_OK;
 }
 
 static void mips_xburst_enable_breakpoints(struct target *target)
@@ -738,8 +944,7 @@ static int mips_xburst_set_watchpoint(struct target *target,
 	 * and exclude both load and store accesses from  watchpoint
 	 * condition evaluation
 	*/
-	int enable = EJTAG_DBCn_NOSB | EJTAG_DBCn_NOLB | EJTAG_DBCn_BE |
-			(0xff << EJTAG_DBCn_BLM_SHIFT);
+	int enable = EJTAG_DBCn_NOSB | EJTAG_DBCn_NOLB | EJTAG_DBCn_BE;
 
 	if (watchpoint->set) {
 		LOG_WARNING("watchpoint already set");
@@ -793,7 +998,7 @@ static int mips_xburst_set_watchpoint(struct target *target,
 			 ejtag_info->ejtag_dbc_offs, enable);
 	/* TODO: probably this value is ignored on 2.0 */
 	target_write_u32(target, comparator_list[wp_num].reg_address +
-			 ejtag_info->ejtag_dbv_offs, 0);
+			 ejtag_info->ejtag_dbv_offs, watchpoint->value);
 	LOG_DEBUG("wp_num %i bp_value 0x%" PRIx32 "", wp_num, comparator_list[wp_num].bp_value);
 
 	return ERROR_OK;
@@ -1299,7 +1504,7 @@ struct target_type mips_xburst_target = {
 
 	.halt = mips_xburst_halt,
 	.resume = mips_xburst_resume,
-	.step = mips_xburst_step,
+	.step = mips_xburst_step_handle,
 
 	.assert_reset = mips_xburst_assert_reset,
 	.deassert_reset = mips_xburst_deassert_reset,
@@ -1322,4 +1527,5 @@ struct target_type mips_xburst_target = {
 	.target_create = mips_xburst_target_create,
 	.init_target = mips_xburst_init_target,
 	.examine = mips_xburst_examine,
+    .handle_last_fetch = mips_xburst_handle_last_fetch,
 };
